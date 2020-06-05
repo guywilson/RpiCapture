@@ -18,9 +18,12 @@
 #include <interface/mmal/util/mmal_connection.h>
 #include <interface/vcos/vcos.h>
 
+extern "C" {
 #include "RaspiCommonSettings.h"
 #include "RaspiCamControl.h"
 #include "RaspiHelpers.h"
+}
+
 #include "rpi_error.h"
 #include "currenttime.h"
 #include "logger.h"
