@@ -176,6 +176,11 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
 
       still_port = camera->output[MMAL_CAMERA_CAPTURE_PORT];
 
+      if (still_port == NULL) {
+         log.logError("still capture port is NULL");
+         throw rpi_error("Failed to get still capture port", __FILE__, __LINE__);
+      }
+
       // Enable the camera, and tell it its control callback function
       status = mmal_port_enable(camera->control, default_camera_control_callback);
 
