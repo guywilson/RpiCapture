@@ -63,8 +63,6 @@ typedef struct {
    MMAL_CONNECTION_T *encoder_connection; /// Pointer to the connection from camera to encoder
 
    MMAL_POOL_T *encoder_pool; /// Pointer to the pool of buffers used by encoder output port
-
-   RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 }
 RASPISTILL_STATE;
 
