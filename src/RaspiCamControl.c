@@ -1080,8 +1080,7 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
    result += raspicamcontrol_set_focus_window(camera, params->focus_window);
    printf("%s:%d\n", __FILE__, __LINE__);
 
-   if (params->settings)
-   {
+   if (params->settings) {
       MMAL_PARAMETER_CHANGE_EVENT_REQUEST_T change_event_request =
       {
          {MMAL_PARAMETER_CHANGE_EVENT_REQUEST, sizeof(MMAL_PARAMETER_CHANGE_EVENT_REQUEST_T)},
@@ -1089,10 +1088,11 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
       };
 
       MMAL_STATUS_T status = mmal_port_parameter_set(camera->control, &change_event_request.hdr);
-      if ( status != MMAL_SUCCESS )
-      {
+      if ( status != MMAL_SUCCESS ) {
          vcos_log_error("No camera settings events");
       }
+
+      printf("Set port parameters\n");
 
       result += status;
    }
