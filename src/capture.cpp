@@ -612,11 +612,10 @@ int main(void)
          state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
 
       // There is a possibility that shutter needs to be set each loop.
-      status = mmal_status_to_int(
-                  mmal_port_parameter_set_uint32(
+      status = mmal_port_parameter_set_uint32(
                      state.camera_component->control, 
                      MMAL_PARAMETER_SHUTTER_SPEED, 
-                     state.camera_parameters.shutter_speed));
+                     state.camera_parameters.shutter_speed);
 
       if (status != MMAL_SUCCESS) {
          log.logError("Failed to set shutter speed");
