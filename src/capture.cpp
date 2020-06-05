@@ -18,11 +18,9 @@
 #include <interface/mmal/util/mmal_connection.h>
 #include <interface/vcos/vcos.h>
 
-#include "RaspiGPS.h"
 #include "RaspiCommonSettings.h"
 #include "RaspiCamControl.h"
 #include "RaspiHelpers.h"
-
 #include "rpi_error.h"
 #include "currenttime.h"
 #include "logger.h"
@@ -108,172 +106,372 @@ static void default_status(RASPISTILL_STATE *state)
 }
 
 /**
- * Add a basic set of EXIF tags to the capture
- * Make, Time etc
+ * Create the camera component, set up its ports
+ *
+ * @param state Pointer to state control struct. camera_component member set to the created camera_component if successful.
+ *
+ * @return MMAL_SUCCESS if all OK, something else otherwise
+ *
+ */
+static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
+{
+   MMAL_COMPONENT_T  *camera = 0;
+   MMAL_ES_FORMAT_T  *format;
+   MMAL_PORT_T       *still_port = NULL;
+   MMAL_STATUS_T     status;
+
+   Logger & log = Logger::getInstance();
+
+   try {
+      /* Create the component */
+      status = mmal_component_create(MMAL_COMPONENT_DEFAULT_CAMERA, &camera);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Failed to create camera component");
+         throw rpi_error("Failed to create camera component", __FILE__, __LINE__);
+      }
+
+      MMAL_PARAMETER_INT32_T camera_num =
+         {{MMAL_PARAMETER_CAMERA_NUM, sizeof(camera_num)}, state->common_settings.cameraNum};
+
+      status = mmal_port_parameter_set(camera->control, &camera_num.hdr);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Could not select camera : error %d", status);
+         throw rpi_error(rpi_error::buildMsg("Could not select camera : error %d", status), __FILE__, __LINE__);
+      }
+
+      if (!camera->output_num) {
+         status = MMAL_ENOSYS;
+         log.logError("Camera doesn't have output ports");
+         throw rpi_error("Camera doesn't have output ports", __FILE__, __LINE__);
+      }
+
+      status = mmal_port_parameter_set_uint32(camera->control, MMAL_PARAMETER_CAMERA_CUSTOM_SENSOR_CONFIG, state->common_settings.sensor_mode);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Could not set sensor mode : error %d", status);
+         throw rpi_error(rpi_error::buildMsg("Could not set sensor mode : error %d", status), __FILE__, __LINE__);
+      }
+
+      still_port = camera->output[MMAL_CAMERA_CAPTURE_PORT];
+
+      // Enable the camera, and tell it its control callback function
+      status = mmal_port_enable(camera->control, default_camera_control_callback);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Unable to enable control port : error %d", status);
+         throw rpi_error(rpi_error::buildMsg("Unable to enable control port : error %d", status), __FILE__, __LINE__);
+      }
+
+      //  set up the camera configuration
+      {
+         MMAL_PARAMETER_CAMERA_CONFIG_T cam_config =
+         {
+            { MMAL_PARAMETER_CAMERA_CONFIG, sizeof(cam_config) },
+            .max_stills_w = state->common_settings.width,
+            .max_stills_h = state->common_settings.height,
+            .stills_yuv422 = 0,
+            .one_shot_stills = 1,
+            .max_preview_video_w = 64,
+            .max_preview_video_h = 48,
+            .num_preview_video_frames = 3,
+            .stills_capture_circular_buffer_height = 0,
+            .fast_preview_resume = 0,
+            .use_stc_timestamp = MMAL_PARAM_TIMESTAMP_MODE_RESET_STC
+         };
+
+         mmal_port_parameter_set(camera->control, &cam_config.hdr);
+      }
+
+      raspicamcontrol_set_all_parameters(camera, &state->camera_parameters);
+
+      // Now set up the port formats
+
+      format->encoding = MMAL_ENCODING_OPAQUE;
+      format->encoding_variant = MMAL_ENCODING_I420;
+
+      if(state->camera_parameters.shutter_speed > 6000000) {
+         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
+            { 5, 1000 }, {166, 1000}
+         };
+         mmal_port_parameter_set(preview_port, &fps_range.hdr);
+      }
+      else if(state->camera_parameters.shutter_speed > 1000000) {
+         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
+            { 166, 1000 }, {999, 1000}
+         };
+         mmal_port_parameter_set(preview_port, &fps_range.hdr);
+      }
+
+      format = still_port->format;
+
+      if(state->camera_parameters.shutter_speed > 6000000) {
+         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
+            { 5, 1000 }, {166, 1000}
+         };
+         mmal_port_parameter_set(still_port, &fps_range.hdr);
+      }
+      else if(state->camera_parameters.shutter_speed > 1000000) {
+         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
+            { 167, 1000 }, {999, 1000}
+         };
+         mmal_port_parameter_set(still_port, &fps_range.hdr);
+      }
+
+      // Set our stills format on the stills (for encoder) port
+      format->encoding = MMAL_ENCODING_OPAQUE;
+      format->es->video.width = VCOS_ALIGN_UP(state->common_settings.width, 32);
+      format->es->video.height = VCOS_ALIGN_UP(state->common_settings.height, 16);
+      format->es->video.crop.x = 0;
+      format->es->video.crop.y = 0;
+      format->es->video.crop.width = state->common_settings.width;
+      format->es->video.crop.height = state->common_settings.height;
+      format->es->video.frame_rate.num = STILLS_FRAME_RATE_NUM;
+      format->es->video.frame_rate.den = STILLS_FRAME_RATE_DEN;
+
+      status = mmal_port_format_commit(still_port);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("camera still format couldn't be set");
+         throw rpi_error("camera still format couldn't be set", __FILE__, __LINE__);
+      }
+
+      /* Ensure there are enough buffers to avoid dropping frames */
+      if (still_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
+         still_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
+
+      /* Enable component */
+      status = mmal_component_enable(camera);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("camera component couldn't be enabled");
+         throw rpi_error("camera component couldn't be enabled", __FILE__, __LINE__);
+      }
+
+      state->camera_component = camera;
+   }
+   catch (rpi_error & e) {
+      if (camera)
+         mmal_component_destroy(camera);
+   }
+
+   return status;
+}
+
+/**
+ * Destroy the camera component
  *
  * @param state Pointer to state control struct
  *
  */
-static void add_exif_tags(RASPISTILL_STATE *state, struct gps_data_t *gpsdata)
+static void destroy_camera_component(RASPISTILL_STATE *state)
 {
-   time_t rawtime;
-   struct tm *timeinfo;
-   char model_buf[32];
-   char time_buf[32];
-   char exif_buf[128];
-   int i;
+   if (state->camera_component) {
+      mmal_component_destroy(state->camera_component);
+      state->camera_component = NULL;
+   }
+}
 
-   snprintf(model_buf, 32, "IFD0.Model=RP_%s", state->common_settings.camera_name);
-   add_exif_tag(state, model_buf);
-   add_exif_tag(state, "IFD0.Make=RaspberryPi");
+/**
+ * Create the encoder component, set up its ports
+ *
+ * @param state Pointer to state control struct. encoder_component member set to the created camera_component if successful.
+ *
+ * @return a MMAL_STATUS, MMAL_SUCCESS if all OK, something else otherwise
+ */
+static MMAL_STATUS_T create_encoder_component(RASPISTILL_STATE *state)
+{
+   MMAL_COMPONENT_T *encoder = 0;
+   MMAL_PORT_T *encoder_input = NULL, *encoder_output = NULL;
+   MMAL_STATUS_T status;
+   MMAL_POOL_T *pool;
 
-   time(&rawtime);
-   timeinfo = localtime(&rawtime);
+   Logger & log = Logger::getInstance();
 
-   snprintf(time_buf, sizeof(time_buf),
-            "%04d:%02d:%02d %02d:%02d:%02d",
-            timeinfo->tm_year+1900,
-            timeinfo->tm_mon+1,
-            timeinfo->tm_mday,
-            timeinfo->tm_hour,
-            timeinfo->tm_min,
-            timeinfo->tm_sec);
+   try {
+      status = mmal_component_create(MMAL_COMPONENT_DEFAULT_IMAGE_ENCODER, &encoder);
 
-   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeDigitized=%s", time_buf);
-   add_exif_tag(state, exif_buf);
+      if (status != MMAL_SUCCESS) {
+         log.logError("Unable to create JPEG encoder component");
+         throw rpi_error("Unable to create JPEG encoder component", __FILE__, __LINE__);
+      }
 
-   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeOriginal=%s", time_buf);
-   add_exif_tag(state, exif_buf);
+      if (!encoder->input_num || !encoder->output_num) {
+         status = MMAL_ENOSYS;
+         log.logError("JPEG encoder doesn't have input/output ports");
+         throw rpi_error("JPEG encoder doesn't have input/output ports", __FILE__, __LINE__);
+      }
 
-   snprintf(exif_buf, sizeof(exif_buf), "IFD0.DateTime=%s", time_buf);
-   add_exif_tag(state, exif_buf);
+      encoder_input = encoder->input[0];
+      encoder_output = encoder->output[0];
 
+      // We want same format on input and output
+      mmal_format_copy(encoder_output->format, encoder_input->format);
 
-   // Add GPS tags
-   if (state->common_settings.gps)
-   {
-      // clear all existing tags first
-      add_exif_tag(state, "GPS.GPSDateStamp=");
-      add_exif_tag(state, "GPS.GPSTimeStamp=");
-      add_exif_tag(state, "GPS.GPSMeasureMode=");
-      add_exif_tag(state, "GPS.GPSSatellites=");
-      add_exif_tag(state, "GPS.GPSLatitude=");
-      add_exif_tag(state, "GPS.GPSLatitudeRef=");
-      add_exif_tag(state, "GPS.GPSLongitude=");
-      add_exif_tag(state, "GPS.GPSLongitudeRef=");
-      add_exif_tag(state, "GPS.GPSAltitude=");
-      add_exif_tag(state, "GPS.GPSAltitudeRef=");
-      add_exif_tag(state, "GPS.GPSSpeed=");
-      add_exif_tag(state, "GPS.GPSSpeedRef=");
-      add_exif_tag(state, "GPS.GPSTrack=");
-      add_exif_tag(state, "GPS.GPSTrackRef=");
+      // Specify out output format
+      encoder_output->format->encoding = state->encoding;
 
-      if (gpsdata->online)
+      encoder_output->buffer_size = encoder_output->buffer_size_recommended;
+
+      if (encoder_output->buffer_size < encoder_output->buffer_size_min)
+         encoder_output->buffer_size = encoder_output->buffer_size_min;
+
+      encoder_output->buffer_num = encoder_output->buffer_num_recommended;
+
+      if (encoder_output->buffer_num < encoder_output->buffer_num_min)
+         encoder_output->buffer_num = encoder_output->buffer_num_min;
+
+      // Commit the port changes to the output port
+      status = mmal_port_format_commit(encoder_output);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Unable to set format on video encoder output port");
+         throw rpi_error("Unable to set format on video encoder output port", __FILE__, __LINE__);
+      }
+
+      // Set the JPEG quality level
+      status = mmal_port_parameter_set_uint32(encoder_output, MMAL_PARAMETER_JPEG_Q_FACTOR, state->quality);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Unable to set JPEG quality");
+         throw rpi_error("Unable to set JPEG quality", __FILE__, __LINE__);
+      }
+
+      // Set the JPEG restart interval
+      status = mmal_port_parameter_set_uint32(encoder_output, MMAL_PARAMETER_JPEG_RESTART_INTERVAL, state->restart_interval);
+
+      if (state->restart_interval && status != MMAL_SUCCESS) {
+         log.logError("Unable to set JPEG restart interval");
+         throw rpi_error("Unable to set JPEG restart interval", __FILE__, __LINE__);
+      }
+
+      // Set up any required thumbnail
       {
-         if (state->common_settings.verbose)
-            fprintf(stderr, "Adding GPS EXIF\n");
-         if (gpsdata->set & TIME_SET)
-         {
-            rawtime = gpsdata->fix.time;
-            timeinfo = localtime(&rawtime);
-            strftime(time_buf, sizeof(time_buf), "%Y:%m:%d", timeinfo);
-            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSDateStamp=%s", time_buf);
-            add_exif_tag(state, exif_buf);
-            strftime(time_buf, sizeof(time_buf), "%H/1,%M/1,%S/1", timeinfo);
-            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSTimeStamp=%s", time_buf);
-            add_exif_tag(state, exif_buf);
-         }
-         if (gpsdata->fix.mode >= MODE_2D)
-         {
-            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSMeasureMode=%c",
-                     (gpsdata->fix.mode >= MODE_3D) ? '3' : '2');
-            add_exif_tag(state, exif_buf);
-            if ((gpsdata->satellites_used > 0) && (gpsdata->satellites_visible > 0))
-            {
-               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Used:%d,Visible:%d",
-                        gpsdata->satellites_used, gpsdata->satellites_visible);
-               add_exif_tag(state, exif_buf);
-            }
-            else if (gpsdata->satellites_used > 0)
-            {
-               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Used:%d",
-                        gpsdata->satellites_used);
-               add_exif_tag(state, exif_buf);
-            }
-            else if (gpsdata->satellites_visible > 0)
-            {
-               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Visible:%d",
-                        gpsdata->satellites_visible);
-               add_exif_tag(state, exif_buf);
-            }
+         MMAL_PARAMETER_THUMBNAIL_CONFIG_T param_thumb = {{MMAL_PARAMETER_THUMBNAIL_CONFIGURATION, sizeof(MMAL_PARAMETER_THUMBNAIL_CONFIG_T)}, 0, 0, 0, 0};
 
-            if (gpsdata->set & LATLON_SET)
-            {
-               if (isnan(gpsdata->fix.latitude) == 0)
-               {
-                  if (deg_to_str(fabs(gpsdata->fix.latitude), time_buf, sizeof(time_buf)) == 0)
-                  {
-                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%s", time_buf);
-                     add_exif_tag(state, exif_buf);
-                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=%c",
-                              (gpsdata->fix.latitude < 0) ? 'S' : 'N');
-                     add_exif_tag(state, exif_buf);
-                  }
-               }
-               if (isnan(gpsdata->fix.longitude) == 0)
-               {
-                  if (deg_to_str(fabs(gpsdata->fix.longitude), time_buf, sizeof(time_buf)) == 0)
-                  {
-                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%s", time_buf);
-                     add_exif_tag(state, exif_buf);
-                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=%c",
-                              (gpsdata->fix.longitude < 0) ? 'W' : 'E');
-                     add_exif_tag(state, exif_buf);
-                  }
-               }
-            }
-            if ((gpsdata->set & ALTITUDE_SET) && (gpsdata->fix.mode >= MODE_3D))
-            {
-               if (isnan(gpsdata->fix.altitude) == 0)
-               {
-                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSAltitude=%d/10",
-                           (int)(gpsdata->fix.altitude*10+0.5));
-                  add_exif_tag(state, exif_buf);
-                  add_exif_tag(state, "GPS.GPSAltitudeRef=0");
-               }
-            }
-            if (gpsdata->set & SPEED_SET)
-            {
-               if (isnan(gpsdata->fix.speed) == 0)
-               {
-                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSpeed=%d/10",
-                           (int)(gpsdata->fix.speed*MPS_TO_KPH*10+0.5));
-                  add_exif_tag(state, exif_buf);
-                  add_exif_tag(state, "GPS.GPSSpeedRef=K");
-               }
-            }
-            if (gpsdata->set & TRACK_SET)
-            {
-               if (isnan(gpsdata->fix.track) == 0)
-               {
-                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSTrack=%d/100",
-                           (int)(gpsdata->fix.track*100+0.5));
-                  add_exif_tag(state, exif_buf);
-                  add_exif_tag(state, "GPS.GPSTrackRef=T");
-               }
-            }
+         if ( state->thumbnailConfig.enable &&
+               state->thumbnailConfig.width > 0 && state->thumbnailConfig.height > 0 )
+         {
+            // Have a valid thumbnail defined
+            param_thumb.enable = 1;
+            param_thumb.width = state->thumbnailConfig.width;
+            param_thumb.height = state->thumbnailConfig.height;
+            param_thumb.quality = state->thumbnailConfig.quality;
          }
+         status = mmal_port_parameter_set(encoder->control, &param_thumb.hdr);
+      }
+
+      //  Enable component
+      status = mmal_component_enable(encoder);
+
+      if (status  != MMAL_SUCCESS) {
+         log.logError("Unable to enable video encoder component");
+         throw rpi_error("Unable to enable video encoder component", __FILE__, __LINE__);
+      }
+
+      /* Create pool of buffer headers for the output port to consume */
+      pool = mmal_port_pool_create(encoder_output, encoder_output->buffer_num, encoder_output->buffer_size);
+
+      if (!pool) {
+         log.logError("Failed to create buffer header pool for encoder output port %s", encoder_output->name);
+      }
+
+      state->encoder_pool = pool;
+      state->encoder_component = encoder;
+   }
+   catch (rpi_error & e) {
+      if (encoder)
+         mmal_component_destroy(encoder);
+   }
+
+   return status;
+}
+
+/**
+ * Destroy the encoder component
+ *
+ * @param state Pointer to state control struct
+ *
+ */
+static void destroy_encoder_component(RASPISTILL_STATE *state)
+{
+   // Get rid of any port buffers first
+   if (state->encoder_pool) {
+      mmal_port_pool_destroy(state->encoder_component->output[0], state->encoder_pool);
+   }
+
+   if (state->encoder_component) {
+      mmal_component_destroy(state->encoder_component);
+      state->encoder_component = NULL;
+   }
+}
+
+/**
+ *  buffer header callback function for encoder
+ *
+ *  Callback will dump buffer data to the specific file
+ *
+ * @param port Pointer to port from which callback originated
+ * @param buffer mmal buffer header pointer
+ */
+static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
+{
+   int complete = 0;
+
+   Logger & log = Logger::getInstance();
+
+   // We pass our file handle and other stuff in via the userdata field.
+
+   PORT_USERDATA *pData = (PORT_USERDATA *)port->userdata;
+
+   if (pData) {
+      int bytes_written = buffer->length;
+
+      if (buffer->length && pData->file_handle) {
+         mmal_buffer_header_mem_lock(buffer);
+
+         bytes_written = fwrite(buffer->data, 1, buffer->length, pData->file_handle);
+
+         mmal_buffer_header_mem_unlock(buffer);
+      }
+
+      // We need to check we wrote what we wanted - it's possible we have run out of storage.
+      if (bytes_written != buffer->length) {
+         log.logError("Did not write enough bytes");
+         complete = 1;
+      }
+
+      // Now flag if we have completed
+      if (buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED)) {
+         complete = 1;
+      }
+   }
+   else {
+      log.logError("Received a encoder buffer callback with no state");
+   }
+
+   // release buffer back to the pool
+   mmal_buffer_header_release(buffer);
+
+   // and send one back to the port (if still open)
+   if (port->is_enabled) {
+      MMAL_STATUS_T status = MMAL_SUCCESS;
+      MMAL_BUFFER_HEADER_T *new_buffer;
+
+      new_buffer = mmal_queue_get(pData->pstate->encoder_pool->queue);
+
+      if (new_buffer) {
+         status = mmal_port_send_buffer(port, new_buffer);
+      }
+      
+      if (!new_buffer || status != MMAL_SUCCESS) {
+         log.logError("Unable to return a buffer to the encoder port");
       }
    }
 
-   // Now send any user supplied tags
-
-   for (i=0; i<state->numExifTags && i < MAX_USER_EXIF_TAGS; i++)
-   {
-      if (state->exifTags[i])
-      {
-         add_exif_tag(state, state->exifTags[i]);
-      }
+   if (complete) {
+      vcos_semaphore_post(&(pData->complete_semaphore));
    }
 }
 
@@ -295,8 +493,6 @@ int main(void)
 	int				      defaultLoggingLevel = LOG_LEVEL_DEBUG | LOG_LEVEL_INFO | LOG_LEVEL_ERROR | LOG_LEVEL_FATAL;
    bool                 keep_looping = true;
    FILE *               output_file = NULL;
-   char *               use_filename = NULL;      // Temporary filename while image being written
-   char *               final_filename = NULL;    // Name that file gets once writing complete
 
    MMAL_STATUS_T status = MMAL_SUCCESS;
    MMAL_PORT_T *camera_still_port = NULL;
@@ -376,147 +572,108 @@ int main(void)
 
    vcos_assert(vcos_status == VCOS_SUCCESS);
 
-   frame = state.frameStart - 1;
+   // Open the file
+   if (state.common_settings.filename) {
+      output_file = fopen(state.common_settings.filename, "wb");
 
-   while (keep_looping) {
-      keep_looping = false;
+      if (!output_file) {
+         check_disable_port(encoder_output_port);
 
-      if (state.datetime) {
-         time_t rawtime;
-         struct tm *timeinfo;
-
-         time(&rawtime);
-         timeinfo = localtime(&rawtime);
-
-         frame = timeinfo->tm_mon+1;
-         frame *= 100;
-         frame += timeinfo->tm_mday;
-         frame *= 100;
-         frame += timeinfo->tm_hour;
-         frame *= 100;
-         frame += timeinfo->tm_min;
-         frame *= 100;
-         frame += timeinfo->tm_sec;
-      }
-      else if (state.timestamp) {
-         frame = (int)time(NULL);
-      }
-
-      // Open the file
-      if (state.common_settings.filename) {
-         output_file = fopen(state.common_settings.filename, "wb");
-
-         if (!output_file) {
-            check_disable_port(encoder_output_port);
-
-            if (state.encoder_connection) {
-               mmal_connection_destroy(state.encoder_connection);
-            }
-
-            /* Disable components */
-            if (state.encoder_component) {
-               mmal_component_disable(state.encoder_component);
-            }
-
-            if (state.camera_component) {
-               mmal_component_disable(state.camera_component);
-            }
-
-            destroy_encoder_component(&state);
-            destroy_camera_component(&state);
-
-            if (state.common_settings.gps) {
-               raspi_gps_shutdown(state.common_settings.verbose);
-            }
-
-            log.logError("Failed to open file %s", state.common_settings.filename);
-
-            throw rpi_error(rpi_error::buildMsg("Faied to open file %s", state.common_settings.filename), __FILE__, __LINE__);
+         if (state.encoder_connection) {
+            mmal_connection_destroy(state.encoder_connection);
          }
 
-         callback_data.file_handle = output_file;
-      }
-      
-      if (output_file) {
-         if ( state.enableExifTags ) {
-            struct gps_data_t *gps_data = raspi_gps_lock();
-            add_exif_tags(&state, gps_data);
-            raspi_gps_unlock();
-         }
-         else {
-            mmal_port_parameter_set_boolean(
-               state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
+         /* Disable components */
+         if (state.encoder_component) {
+            mmal_component_disable(state.encoder_component);
          }
 
-         // There is a possibility that shutter needs to be set each loop.
-         status = mmal_status_to_int(
-                     mmal_port_parameter_set_uint32(
-                        state.camera_component->control, 
-                        MMAL_PARAMETER_SHUTTER_SPEED, 
-                        state.camera_parameters.shutter_speed));
+         if (state.camera_component) {
+            mmal_component_disable(state.camera_component);
+         }
+
+         destroy_encoder_component(&state);
+         destroy_camera_component(&state);
+
+         if (state.common_settings.gps) {
+            raspi_gps_shutdown(state.common_settings.verbose);
+         }
+
+         log.logError("Failed to open file %s", state.common_settings.filename);
+
+         throw rpi_error(rpi_error::buildMsg("Faied to open file %s", state.common_settings.filename), __FILE__, __LINE__);
+      }
+
+      callback_data.file_handle = output_file;
+   }
+   
+   if (output_file) {
+      if ( state.enableExifTags ) {
+         struct gps_data_t *gps_data = raspi_gps_lock();
+         add_exif_tags(&state, gps_data);
+         raspi_gps_unlock();
+      }
+      else {
+         mmal_port_parameter_set_boolean(
+            state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
+      }
+
+      // There is a possibility that shutter needs to be set each loop.
+      status = mmal_status_to_int(
+                  mmal_port_parameter_set_uint32(
+                     state.camera_component->control, 
+                     MMAL_PARAMETER_SHUTTER_SPEED, 
+                     state.camera_parameters.shutter_speed));
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Failed to set shutter speed");
+      }
+
+      // Enable the encoder output port
+      encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
+
+      // Enable the encoder output port and tell it its callback function
+      status = mmal_port_enable(encoder_output_port, encoder_buffer_callback);
+
+      // Send all the buffers to the encoder output port
+      num = mmal_queue_length(state.encoder_pool->queue);
+
+      for (q = 0;q < num;q++) {
+         MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
+
+         if (!buffer) {
+            log.logError("Failed to get queue");
+         }
+
+         status = mmal_port_send_buffer(encoder_output_port, buffer);
 
          if (status != MMAL_SUCCESS) {
-            log.logError("Failed to set shutter speed");
-         }
-
-         // Enable the encoder output port
-         encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
-
-         // Enable the encoder output port and tell it its callback function
-         status = mmal_port_enable(encoder_output_port, encoder_buffer_callback);
-
-         // Send all the buffers to the encoder output port
-         num = mmal_queue_length(state.encoder_pool->queue);
-
-         for (q = 0;q < num;q++) {
-            MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
-
-            if (!buffer) {
-               log.logError("Failed to get queue");
-            }
-
-            status = mmal_port_send_buffer(encoder_output_port, buffer);
-
-            if (status != MMAL_SUCCESS) {
-               log.logError("Failed to send buffer");
-            }
-         }
-
-         status = mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1);
-
-         if (status != MMAL_SUCCESS) {
-            log.logError("Failed to start capture");
-         }
-         else {
-            // Wait for capture to complete
-            // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-            // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-            vcos_semaphore_wait(&callback_data.complete_semaphore);
-         }
-
-         // Ensure we don't die if get callback with no open file
-         callback_data.file_handle = NULL;
-
-         rename_file(&state, output_file, final_filename, use_filename, frame);
-
-         // Disable encoder output port
-         status = mmal_port_disable(encoder_output_port);
-
-         if (status != MMAL_SUCCESS) {
-            throw rpi_error("Failed to disable port", __FILE__, __LINE__);
+            log.logError("Failed to send buffer");
          }
       }
 
-      if (use_filename) {
-         free(use_filename);
-         use_filename = NULL;
+      status = mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1);
+
+      if (status != MMAL_SUCCESS) {
+         log.logError("Failed to start capture");
+      }
+      else {
+         // Wait for capture to complete
+         // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+         // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+         vcos_semaphore_wait(&callback_data.complete_semaphore);
       }
 
-      if (final_filename) {
-         free(final_filename);
-         final_filename = NULL;
+      // Ensure we don't die if get callback with no open file
+      callback_data.file_handle = NULL;
+
+      // Disable encoder output port
+      status = mmal_port_disable(encoder_output_port);
+
+      if (status != MMAL_SUCCESS) {
+         throw rpi_error("Failed to disable port", __FILE__, __LINE__);
       }
-   } // end while
+   }
 
    vcos_semaphore_delete(&callback_data.complete_semaphore);
 }
