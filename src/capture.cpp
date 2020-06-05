@@ -208,6 +208,7 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          log.logDebug("MMAL: Set camera configuration");
       }
 
+      raspicamcontrol_dump_parameters(&state->camera_parameters);
       raspicamcontrol_set_all_parameters(camera, &state->camera_parameters);
 
       // Now set up the port formats
