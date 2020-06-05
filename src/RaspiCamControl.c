@@ -1028,26 +1028,45 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
    int result;
 
    result  = raspicamcontrol_set_saturation(camera, params->saturation);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_sharpness(camera, params->sharpness);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_contrast(camera, params->contrast);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_brightness(camera, params->brightness);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_ISO(camera, params->ISO);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_video_stabilisation(camera, params->videoStabilisation);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_exposure_compensation(camera, params->exposureCompensation);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_exposure_mode(camera, params->exposureMode);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_flicker_avoid_mode(camera, params->flickerAvoidMode);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_metering_mode(camera, params->exposureMeterMode);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_awb_mode(camera, params->awbMode);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_awb_gains(camera, params->awb_gains_r, params->awb_gains_b);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_imageFX(camera, params->imageEffect);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_colourFX(camera, &params->colourEffects);
-   //result += raspicamcontrol_set_thumbnail_parameters(camera, &params->thumbnailConfig);  TODO Not working for some reason
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_rotation(camera, params->rotation);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_flips(camera, params->hflip, params->vflip);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_ROI(camera, params->roi);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_shutter_speed(camera, params->shutter_speed);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_DRC(camera, params->drc_level);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_stats_pass(camera, params->stats_pass);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_annotate(camera, params->enable_annotate, params->annotate_string,
                                           params->annotate_text_size,
                                           params->annotate_text_colour,
@@ -1055,8 +1074,11 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
                                           params->annotate_justify,
                                           params->annotate_x,
                                           params->annotate_y);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_gains(camera, params->analog_gain, params->digital_gain);
+   printf("%s:%d\n", __FILE__, __LINE__);
    result += raspicamcontrol_set_focus_window(camera, params->focus_window);
+   printf("%s:%d\n", __FILE__, __LINE__);
 
    if (params->settings)
    {
