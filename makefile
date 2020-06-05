@@ -39,7 +39,7 @@ EXTLIBS = -lmmal -lmmal_core -lmmal_util -lm -ldl
 
 COMPILE.cpp = $(CPP) $(CPPFLAGS) $(DEPFLAGS) -o $@
 COMPILE.c = $(C) $(CFLAGS) $(DEPFLAGS) -o $@
-LINK.o = $(LINKER) $(STDLIBS) -o $@
+LINK.o = $(LINKER) -L/opt/vc/lib $(STDLIBS) -o $@
 
 CSRCFILES = $(wildcard $(SOURCE)/*.c)
 CPPSRCFILES = $(wildcard $(SOURCE)/*.cpp)
