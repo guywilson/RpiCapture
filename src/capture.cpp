@@ -608,15 +608,8 @@ int main(void)
    }
    
    if (output_file) {
-      if ( state.enableExifTags ) {
-         struct gps_data_t *gps_data = raspi_gps_lock();
-         add_exif_tags(&state, gps_data);
-         raspi_gps_unlock();
-      }
-      else {
-         mmal_port_parameter_set_boolean(
-            state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
-      }
+      mmal_port_parameter_set_boolean(
+         state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
 
       // There is a possibility that shutter needs to be set each loop.
       status = mmal_status_to_int(
