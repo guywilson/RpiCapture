@@ -204,19 +204,6 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
       format->encoding = MMAL_ENCODING_OPAQUE;
       format->encoding_variant = MMAL_ENCODING_I420;
 
-      if(state->camera_parameters.shutter_speed > 6000000) {
-         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
-            { 5, 1000 }, {166, 1000}
-         };
-         mmal_port_parameter_set(preview_port, &fps_range.hdr);
-      }
-      else if(state->camera_parameters.shutter_speed > 1000000) {
-         MMAL_PARAMETER_FPS_RANGE_T fps_range = {{MMAL_PARAMETER_FPS_RANGE, sizeof(fps_range)},
-            { 166, 1000 }, {999, 1000}
-         };
-         mmal_port_parameter_set(preview_port, &fps_range.hdr);
-      }
-
       format = still_port->format;
 
       if(state->camera_parameters.shutter_speed > 6000000) {
