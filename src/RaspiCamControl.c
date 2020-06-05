@@ -1081,6 +1081,8 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
    printf("%s:%d\n", __FILE__, __LINE__);
 
    if (params->settings) {
+      printf("Setting change event\n");
+
       MMAL_PARAMETER_CHANGE_EVENT_REQUEST_T change_event_request =
       {
          {MMAL_PARAMETER_CHANGE_EVENT_REQUEST, sizeof(MMAL_PARAMETER_CHANGE_EVENT_REQUEST_T)},
