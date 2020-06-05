@@ -1080,6 +1080,8 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
    result += raspicamcontrol_set_focus_window(camera, params->focus_window);
    printf("%s:%d\n", __FILE__, __LINE__);
 
+   printf("Set camera paramters...\n");
+
    if (params->settings) {
       printf("Setting change event\n");
 
