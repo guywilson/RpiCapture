@@ -14,7 +14,7 @@
 #include <interface/mmal/mmal_parameters_camera.h>
 #include <interface/mmal/util/mmal_util.h>
 #include <interface/mmal/util/mmal_util_params.h>
-#include <interface/mmaml/util/mmal_default_components.h>
+#include <interface/mmal/util/mmal_default_components.h>
 #include <interface/mmal/util/mmal_connection.h>
 #include <interface/vcos/vcos.h>
 
