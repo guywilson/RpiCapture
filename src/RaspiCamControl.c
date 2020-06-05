@@ -1089,7 +1089,7 @@ int raspicamcontrol_set_all_parameters(MMAL_COMPONENT_T *camera, const RASPICAM_
 
       MMAL_STATUS_T status = mmal_port_parameter_set(camera->control, &change_event_request.hdr);
       if ( status != MMAL_SUCCESS ) {
-         vcos_log_error("No camera settings events");
+//         vcos_log_error("No camera settings events");
       }
 
       printf("Set port parameters\n");
