@@ -6,20 +6,22 @@
 #include <pthread.h>
 #include <time.h>
 
-#include <mmal/mmal.h>
-#include <mmal/mmal_types.h>
-#include <mmal/mmal_logging.h>
-#include <mmal/mmal_buffer.h>
-#include <mmal/mmal_parameters_camera.h>
-#include <mmal/util/mmal_util.h>
-#include <mmal/util/mmal_util_params.h>
-#include <mmaml/util/mmal_default_components.h>
-#include <mmal/util/mmal_connection.h>
-#include <vcos/vcos.h>
-#include <RaspiGPS.h>
-#include <RaspiCommonSettings.h>
-#include <RaspiCamControl.h>
-#include <RaspiHelpers.h>
+#include <bcm_host.h>
+#include <interface/mmal/mmal.h>
+#include <interface/mmal/mmal_types.h>
+#include <interface/mmal/mmal_logging.h>
+#include <interface/mmal/mmal_buffer.h>
+#include <interface/mmal/mmal_parameters_camera.h>
+#include <interface/mmal/util/mmal_util.h>
+#include <interface/mmal/util/mmal_util_params.h>
+#include <interface/mmaml/util/mmal_default_components.h>
+#include <interface/mmal/util/mmal_connection.h>
+#include <interface/vcos/vcos.h>
+
+#include "RaspiGPS.h"
+#include "RaspiCommonSettings.h"
+#include "RaspiCamControl.h"
+#include "RaspiHelpers.h"
 
 #include "rpi_error.h"
 #include "currenttime.h"
@@ -105,6 +107,176 @@ static void default_status(RASPISTILL_STATE *state)
    raspicamcontrol_set_defaults(&state->camera_parameters);
 }
 
+/**
+ * Add a basic set of EXIF tags to the capture
+ * Make, Time etc
+ *
+ * @param state Pointer to state control struct
+ *
+ */
+static void add_exif_tags(RASPISTILL_STATE *state, struct gps_data_t *gpsdata)
+{
+   time_t rawtime;
+   struct tm *timeinfo;
+   char model_buf[32];
+   char time_buf[32];
+   char exif_buf[128];
+   int i;
+
+   snprintf(model_buf, 32, "IFD0.Model=RP_%s", state->common_settings.camera_name);
+   add_exif_tag(state, model_buf);
+   add_exif_tag(state, "IFD0.Make=RaspberryPi");
+
+   time(&rawtime);
+   timeinfo = localtime(&rawtime);
+
+   snprintf(time_buf, sizeof(time_buf),
+            "%04d:%02d:%02d %02d:%02d:%02d",
+            timeinfo->tm_year+1900,
+            timeinfo->tm_mon+1,
+            timeinfo->tm_mday,
+            timeinfo->tm_hour,
+            timeinfo->tm_min,
+            timeinfo->tm_sec);
+
+   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeDigitized=%s", time_buf);
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeOriginal=%s", time_buf);
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf, sizeof(exif_buf), "IFD0.DateTime=%s", time_buf);
+   add_exif_tag(state, exif_buf);
+
+
+   // Add GPS tags
+   if (state->common_settings.gps)
+   {
+      // clear all existing tags first
+      add_exif_tag(state, "GPS.GPSDateStamp=");
+      add_exif_tag(state, "GPS.GPSTimeStamp=");
+      add_exif_tag(state, "GPS.GPSMeasureMode=");
+      add_exif_tag(state, "GPS.GPSSatellites=");
+      add_exif_tag(state, "GPS.GPSLatitude=");
+      add_exif_tag(state, "GPS.GPSLatitudeRef=");
+      add_exif_tag(state, "GPS.GPSLongitude=");
+      add_exif_tag(state, "GPS.GPSLongitudeRef=");
+      add_exif_tag(state, "GPS.GPSAltitude=");
+      add_exif_tag(state, "GPS.GPSAltitudeRef=");
+      add_exif_tag(state, "GPS.GPSSpeed=");
+      add_exif_tag(state, "GPS.GPSSpeedRef=");
+      add_exif_tag(state, "GPS.GPSTrack=");
+      add_exif_tag(state, "GPS.GPSTrackRef=");
+
+      if (gpsdata->online)
+      {
+         if (state->common_settings.verbose)
+            fprintf(stderr, "Adding GPS EXIF\n");
+         if (gpsdata->set & TIME_SET)
+         {
+            rawtime = gpsdata->fix.time;
+            timeinfo = localtime(&rawtime);
+            strftime(time_buf, sizeof(time_buf), "%Y:%m:%d", timeinfo);
+            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSDateStamp=%s", time_buf);
+            add_exif_tag(state, exif_buf);
+            strftime(time_buf, sizeof(time_buf), "%H/1,%M/1,%S/1", timeinfo);
+            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSTimeStamp=%s", time_buf);
+            add_exif_tag(state, exif_buf);
+         }
+         if (gpsdata->fix.mode >= MODE_2D)
+         {
+            snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSMeasureMode=%c",
+                     (gpsdata->fix.mode >= MODE_3D) ? '3' : '2');
+            add_exif_tag(state, exif_buf);
+            if ((gpsdata->satellites_used > 0) && (gpsdata->satellites_visible > 0))
+            {
+               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Used:%d,Visible:%d",
+                        gpsdata->satellites_used, gpsdata->satellites_visible);
+               add_exif_tag(state, exif_buf);
+            }
+            else if (gpsdata->satellites_used > 0)
+            {
+               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Used:%d",
+                        gpsdata->satellites_used);
+               add_exif_tag(state, exif_buf);
+            }
+            else if (gpsdata->satellites_visible > 0)
+            {
+               snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSatellites=Visible:%d",
+                        gpsdata->satellites_visible);
+               add_exif_tag(state, exif_buf);
+            }
+
+            if (gpsdata->set & LATLON_SET)
+            {
+               if (isnan(gpsdata->fix.latitude) == 0)
+               {
+                  if (deg_to_str(fabs(gpsdata->fix.latitude), time_buf, sizeof(time_buf)) == 0)
+                  {
+                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%s", time_buf);
+                     add_exif_tag(state, exif_buf);
+                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=%c",
+                              (gpsdata->fix.latitude < 0) ? 'S' : 'N');
+                     add_exif_tag(state, exif_buf);
+                  }
+               }
+               if (isnan(gpsdata->fix.longitude) == 0)
+               {
+                  if (deg_to_str(fabs(gpsdata->fix.longitude), time_buf, sizeof(time_buf)) == 0)
+                  {
+                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%s", time_buf);
+                     add_exif_tag(state, exif_buf);
+                     snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=%c",
+                              (gpsdata->fix.longitude < 0) ? 'W' : 'E');
+                     add_exif_tag(state, exif_buf);
+                  }
+               }
+            }
+            if ((gpsdata->set & ALTITUDE_SET) && (gpsdata->fix.mode >= MODE_3D))
+            {
+               if (isnan(gpsdata->fix.altitude) == 0)
+               {
+                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSAltitude=%d/10",
+                           (int)(gpsdata->fix.altitude*10+0.5));
+                  add_exif_tag(state, exif_buf);
+                  add_exif_tag(state, "GPS.GPSAltitudeRef=0");
+               }
+            }
+            if (gpsdata->set & SPEED_SET)
+            {
+               if (isnan(gpsdata->fix.speed) == 0)
+               {
+                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSSpeed=%d/10",
+                           (int)(gpsdata->fix.speed*MPS_TO_KPH*10+0.5));
+                  add_exif_tag(state, exif_buf);
+                  add_exif_tag(state, "GPS.GPSSpeedRef=K");
+               }
+            }
+            if (gpsdata->set & TRACK_SET)
+            {
+               if (isnan(gpsdata->fix.track) == 0)
+               {
+                  snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSTrack=%d/100",
+                           (int)(gpsdata->fix.track*100+0.5));
+                  add_exif_tag(state, exif_buf);
+                  add_exif_tag(state, "GPS.GPSTrackRef=T");
+               }
+            }
+         }
+      }
+   }
+
+   // Now send any user supplied tags
+
+   for (i=0; i<state->numExifTags && i < MAX_USER_EXIF_TAGS; i++)
+   {
+      if (state->exifTags[i])
+      {
+         add_exif_tag(state, state->exifTags[i]);
+      }
+   }
+}
+
 void capture(RASPISTILL_STATE * state)
 {
 
@@ -120,6 +292,7 @@ int main(void)
    int                  exit_code = EX_OK;
    int                  num;
    int                  q;
+	int				      defaultLoggingLevel = LOG_LEVEL_DEBUG | LOG_LEVEL_INFO | LOG_LEVEL_ERROR | LOG_LEVEL_FATAL;
    bool                 keep_looping = true;
    FILE *               output_file = NULL;
    char *               use_filename = NULL;      // Temporary filename while image being written
@@ -132,6 +305,8 @@ int main(void)
 
    Logger & log = Logger::getInstance();
 
+	log.initLogger(defaultLoggingLevel);
+
    bcm_host_init();
 
    default_status(&state);
@@ -143,6 +318,7 @@ int main(void)
    status = create_camera_component(&state);
 
    if (status != MMAL_SUCCESS) {
+      log.logError("Failed to create camera component");
       throw rpi_error("Failed to create camera component", __FILE__, __LINE__);
    }
 
@@ -151,6 +327,8 @@ int main(void)
    if (status != MMAL_SUCCESS) {
       mmal_component_destroy(state->camera_component);
       state->camera_component = NULL;
+
+      log.logError("Failed to create encoder component");
 
       throw rpi_error("Failed to create encoder component", __FILE__, __LINE__);
    }
@@ -163,6 +341,30 @@ int main(void)
    status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
 
    if (status != MMAL_SUCCESS) {
+      check_disable_port(encoder_output_port);
+
+      if (state.encoder_connection) {
+         mmal_connection_destroy(state.encoder_connection);
+      }
+
+      /* Disable components */
+      if (state.encoder_component) {
+         mmal_component_disable(state.encoder_component);
+      }
+
+      if (state.camera_component) {
+         mmal_component_disable(state.camera_component);
+      }
+
+      destroy_encoder_component(&state);
+      destroy_camera_component(&state);
+
+      if (state.common_settings.gps) {
+         raspi_gps_shutdown(state.common_settings.verbose);
+      }
+
+      log.logError("Failed to connect camera to encoder");
+
       throw rpi_error("Failed to connect camera to encoder", __FILE__, __LINE__);
    }
 
@@ -202,18 +404,34 @@ int main(void)
 
       // Open the file
       if (state.common_settings.filename) {
-         vcos_assert(use_filename == NULL && final_filename == NULL);
-
-         status = create_filenames(&final_filename, &use_filename, state.common_settings.filename, frame);
-
-         if (status != MMAL_SUCCESS) {
-            throw rpi_error("Failed to create filenames", __FILE__, __LINE__);
-         }
-
-         output_file = fopen(use_filename, "wb");
+         output_file = fopen(state.common_settings.filename, "wb");
 
          if (!output_file) {
-            throw rpi_error(rpi_error::buildMsg("Faied to open file %s", use_filename), __FILE__, __LINE__);
+            check_disable_port(encoder_output_port);
+
+            if (state.encoder_connection) {
+               mmal_connection_destroy(state.encoder_connection);
+            }
+
+            /* Disable components */
+            if (state.encoder_component) {
+               mmal_component_disable(state.encoder_component);
+            }
+
+            if (state.camera_component) {
+               mmal_component_disable(state.camera_component);
+            }
+
+            destroy_encoder_component(&state);
+            destroy_camera_component(&state);
+
+            if (state.common_settings.gps) {
+               raspi_gps_shutdown(state.common_settings.verbose);
+            }
+
+            log.logError("Failed to open file %s", state.common_settings.filename);
+
+            throw rpi_error(rpi_error::buildMsg("Faied to open file %s", state.common_settings.filename), __FILE__, __LINE__);
          }
 
          callback_data.file_handle = output_file;
@@ -231,8 +449,15 @@ int main(void)
          }
 
          // There is a possibility that shutter needs to be set each loop.
-         if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, MMAL_PARAMETER_SHUTTER_SPEED, state.camera_parameters.shutter_speed)) != MMAL_SUCCESS)
-            vcos_log_error("Unable to set shutter speed");
+         status = mmal_status_to_int(
+                     mmal_port_parameter_set_uint32(
+                        state.camera_component->control, 
+                        MMAL_PARAMETER_SHUTTER_SPEED, 
+                        state.camera_parameters.shutter_speed));
+
+         if (status != MMAL_SUCCESS) {
+            log.logError("Failed to set shutter speed");
+         }
 
          // Enable the encoder output port
          encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
@@ -247,20 +472,20 @@ int main(void)
             MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
 
             if (!buffer) {
-               throw rpi_error("Faied to get queue", __FILE__, __LINE__);
+               log.logError("Failed to get queue");
             }
 
             status = mmal_port_send_buffer(encoder_output_port, buffer);
 
             if (status != MMAL_SUCCESS) {
-               throw rpi_error("Failed to send buffer", __FILE__, __LINE__);
+               log.logError("Failed to send buffer");
             }
          }
 
          status = mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1);
 
          if (status != MMAL_SUCCESS) {
-            throw rpi_error("Failed to initiate capture", __FILE__, __LINE__);
+            log.logError("Failed to start capture");
          }
          else {
             // Wait for capture to complete
