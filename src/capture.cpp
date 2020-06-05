@@ -32,6 +32,9 @@
 #define STILLS_FRAME_RATE_NUM 0
 #define STILLS_FRAME_RATE_DEN 1
 
+// Video render needs at least 2 buffers.
+#define VIDEO_OUTPUT_BUFFERS_NUM 3
+
 #define MAX_USER_EXIF_TAGS      32
 #define MAX_EXIF_PAYLOAD_LENGTH 128
 
