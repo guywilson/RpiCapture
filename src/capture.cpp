@@ -145,6 +145,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          throw rpi_error("Failed to create camera component", __FILE__, __LINE__);
       }
 
+      log.logDebug("MMAL: Created component");
+
       MMAL_PARAMETER_INT32_T camera_num =
          {{MMAL_PARAMETER_CAMERA_NUM, sizeof(camera_num)}, state->common_settings.cameraNum};
 
@@ -154,6 +156,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          log.logError("Could not select camera : error %d", status);
          throw rpi_error(rpi_error::buildMsg("Could not select camera : error %d", status), __FILE__, __LINE__);
       }
+
+      log.logDebug("MMAL: Selected camera");
 
       if (!camera->output_num) {
          status = MMAL_ENOSYS;
@@ -168,6 +172,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          throw rpi_error(rpi_error::buildMsg("Could not set sensor mode : error %d", status), __FILE__, __LINE__);
       }
 
+      log.logDebug("MMAL: Set sensor mode");
+
       still_port = camera->output[MMAL_CAMERA_CAPTURE_PORT];
 
       // Enable the camera, and tell it its control callback function
@@ -177,6 +183,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          log.logError("Unable to enable control port : error %d", status);
          throw rpi_error(rpi_error::buildMsg("Unable to enable control port : error %d", status), __FILE__, __LINE__);
       }
+
+      log.logDebug("MMAL: Enabled the camera");
 
       //  set up the camera configuration
       {
@@ -196,6 +204,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          };
 
          mmal_port_parameter_set(camera->control, &cam_config.hdr);
+
+         log.logDebug("MMAL: Set camera configuration");
       }
 
       raspicamcontrol_set_all_parameters(camera, &state->camera_parameters);
@@ -238,6 +248,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          throw rpi_error("camera still format couldn't be set", __FILE__, __LINE__);
       }
 
+      log.logDebug("MMAL: Set camera still format");
+
       /* Ensure there are enough buffers to avoid dropping frames */
       if (still_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
          still_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
@@ -249,6 +261,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
          log.logError("camera component couldn't be enabled");
          throw rpi_error("camera component couldn't be enabled", __FILE__, __LINE__);
       }
+
+      log.logDebug("MMAL: Enabled camera");
 
       state->camera_component = camera;
    }
@@ -522,7 +536,7 @@ int main(int argc, char **argv)
    get_sensor_defaults(state.common_settings.cameraNum, state.common_settings.camera_name,
                        &state.common_settings.width, &state.common_settings.height);
 
-   log.logDebug("Got sesnor defaults");
+   log.logDebug("Got sensor defaults");
    
    status = create_camera_component(&state);
 
