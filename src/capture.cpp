@@ -505,13 +505,24 @@ int main(int argc, char **argv)
 
    bcm_host_init();
 
+   log.logDebug("Initialised bcm host");
+
    default_status(&state);
 
-   state.linkname = strdup(&argv[1][0]);
+   if (argc > 1) {
+      state.linkname = strdup(&argv[1][0]);
+   }
+   else {
+      state.linkname = "out.jpg";
+   }
+
+   log.logDebug("Got file name %s", state.linkname);
 
    // Setup for sensor specific parameters
    get_sensor_defaults(state.common_settings.cameraNum, state.common_settings.camera_name,
                        &state.common_settings.width, &state.common_settings.height);
+
+   log.logDebug("Got sesnor defaults");
    
    status = create_camera_component(&state);
 
@@ -519,6 +530,8 @@ int main(int argc, char **argv)
       log.logError("Failed to create camera component");
       throw rpi_error("Failed to create camera component", __FILE__, __LINE__);
    }
+
+   log.logDebug("Created camera component");
 
    status = create_encoder_component(&state);
 
@@ -529,6 +542,8 @@ int main(int argc, char **argv)
       log.logError("Failed to create encoder component");
       throw rpi_error("Failed to create encoder component", __FILE__, __LINE__);
    }
+
+   log.logDebug("Created encoder component");
 
    camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
    encoder_input_port  = state.encoder_component->input[0];
