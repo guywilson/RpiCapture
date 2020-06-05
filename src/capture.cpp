@@ -25,6 +25,16 @@
 #include "currenttime.h"
 #include "logger.h"
 
+#define MMAL_CAMERA_CAPTURE_PORT 2
+
+// Stills format information
+// 0 implies variable
+#define STILLS_FRAME_RATE_NUM 0
+#define STILLS_FRAME_RATE_DEN 1
+
+#define MAX_USER_EXIF_TAGS      32
+#define MAX_EXIF_PAYLOAD_LENGTH 128
+
 /** Structure containing all state information for the current run
  */
 typedef struct {
@@ -487,7 +497,6 @@ int main(void)
    PORT_USERDATA        callback_data;
    VCOS_STATUS_T        vcos_status;
    int                  frame; 
-   int                  exit_code = EX_OK;
    int                  num;
    int                  q;
 	int				      defaultLoggingLevel = LOG_LEVEL_DEBUG | LOG_LEVEL_INFO | LOG_LEVEL_ERROR | LOG_LEVEL_FATAL;
@@ -521,11 +530,10 @@ int main(void)
    status = create_encoder_component(&state);
 
    if (status != MMAL_SUCCESS) {
-      mmal_component_destroy(state->camera_component);
-      state->camera_component = NULL;
+      mmal_component_destroy(state.camera_component);
+      state.camera_component = NULL;
 
       log.logError("Failed to create encoder component");
-
       throw rpi_error("Failed to create encoder component", __FILE__, __LINE__);
    }
 
@@ -554,10 +562,6 @@ int main(void)
 
       destroy_encoder_component(&state);
       destroy_camera_component(&state);
-
-      if (state.common_settings.gps) {
-         raspi_gps_shutdown(state.common_settings.verbose);
-      }
 
       log.logError("Failed to connect camera to encoder");
 
@@ -594,10 +598,6 @@ int main(void)
 
          destroy_encoder_component(&state);
          destroy_camera_component(&state);
-
-         if (state.common_settings.gps) {
-            raspi_gps_shutdown(state.common_settings.verbose);
-         }
 
          log.logError("Failed to open file %s", state.common_settings.filename);
 
