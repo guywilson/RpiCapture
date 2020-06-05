@@ -55,7 +55,6 @@ typedef struct {
    int timestamp;                      /// Use timestamp instead of frame#
    int restart_interval;               /// JPEG restart interval. 0 for none.
 
-   RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
    RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
 
    MMAL_COMPONENT_T *camera_component;    /// Pointer to the camera component
