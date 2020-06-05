@@ -507,7 +507,7 @@ int main(int argc, char **argv)
 
    default_status(&state);
 
-   strdup(state.linkname, argv[1][0]);
+   state.linkname = strdup(argv[1][0]);
 
    // Setup for sensor specific parameters
    get_sensor_defaults(state.common_settings.cameraNum, state.common_settings.camera_name,
