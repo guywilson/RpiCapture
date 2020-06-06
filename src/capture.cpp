@@ -579,12 +579,42 @@ int main(int argc, char **argv)
    encoder_input_port  = state.encoder_component->input[0];
    encoder_output_port = state.encoder_component->output[0];
 
+   log.logDebug("Set up ports");
+
    // Note we are lucky that the preview and null sink components use the same input port
    // so we can simple do this without conditionals
    preview_input_port  = state.preview_parameters.preview_component->input[0];
 
+   log.logDebug("Set preview input port");
+
    // Connect camera to preview (which might be a null_sink if no preview required)
    status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
+
+   if (status != MMAL_SUCCESS) {
+      check_disable_port(encoder_output_port);
+
+      if (state.encoder_connection) {
+         mmal_connection_destroy(state.encoder_connection);
+      }
+
+      /* Disable components */
+      if (state.encoder_component) {
+         mmal_component_disable(state.encoder_component);
+      }
+
+      if (state.camera_component) {
+         mmal_component_disable(state.camera_component);
+      }
+
+      destroy_encoder_component(&state);
+      destroy_camera_component(&state);
+
+      log.logError("Failed to connect camera to preview");
+
+      throw rpi_error("Failed to connect camera to preview", __FILE__, __LINE__);
+   }
+
+   log.logDebug("Connected camera to preview");
 
    // Now connect the camera to the encoder
    status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
