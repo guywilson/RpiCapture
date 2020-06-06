@@ -667,6 +667,8 @@ int main(int argc, char **argv)
       // Send all the buffers to the encoder output port
       num = mmal_queue_length(state.encoder_pool->queue);
 
+      log.logDebug("Got %d encoder queues", num);
+
       for (q = 0;q < num;q++) {
          MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
 
@@ -683,6 +685,8 @@ int main(int argc, char **argv)
 
       log.logDebug("Sent buffers to encoder output");
 
+      log.logDebug("Initiating capture");
+
       status = mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1);
 
       if (status != MMAL_SUCCESS) {
@@ -692,10 +696,12 @@ int main(int argc, char **argv)
          // Wait for capture to complete
          // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
          // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+         log.logDebug("Waiting on semaphore");
+
          vcos_semaphore_wait(&callback_data.complete_semaphore);
       }
 
-      log.logDebug("Initaiated capture");
+      log.logDebug("Capture complete");
 
       // Ensure we don't die if get callback with no open file
       callback_data.file_handle = NULL;
