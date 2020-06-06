@@ -218,9 +218,6 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
 
       // Now set up the port formats
 
-      format->encoding = MMAL_ENCODING_OPAQUE;
-      format->encoding_variant = MMAL_ENCODING_I420;
-
       format = still_port->format;
 
       if(state->camera_parameters.shutter_speed > 6000000) {
