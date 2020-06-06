@@ -30,20 +30,20 @@ extern "C" {
 #include "currenttime.h"
 #include "logger.h"
 
-#define MMAL_CAMERA_PREVIEW_PORT 0
-#define MMAL_CAMERA_VIDEO_PORT 1
-#define MMAL_CAMERA_CAPTURE_PORT 2
+#define MMAL_CAMERA_PREVIEW_PORT    0
+#define MMAL_CAMERA_VIDEO_PORT      1
+#define MMAL_CAMERA_CAPTURE_PORT    2
 
 // Stills format information
 // 0 implies variable
-#define STILLS_FRAME_RATE_NUM 0
-#define STILLS_FRAME_RATE_DEN 1
+#define STILLS_FRAME_RATE_NUM       0
+#define STILLS_FRAME_RATE_DEN       1
 
 // Video render needs at least 2 buffers.
-#define VIDEO_OUTPUT_BUFFERS_NUM 3
+#define VIDEO_OUTPUT_BUFFERS_NUM    3
 
-#define MAX_USER_EXIF_TAGS      32
-#define MAX_EXIF_PAYLOAD_LENGTH 128
+#define MAX_USER_EXIF_TAGS          32
+#define MAX_EXIF_PAYLOAD_LENGTH     128
 
 /** Structure containing all state information for the current run
  */
@@ -183,6 +183,8 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
 
       log.logDebug("MMAL: Set sensor mode");
 
+      preview_port = camera->output[MMAL_CAMERA_PREVIEW_PORT];
+      video_port = camera->output[MMAL_CAMERA_VIDEO_PORT];
       still_port = camera->output[MMAL_CAMERA_CAPTURE_PORT];
 
       if (still_port == NULL) {
@@ -534,6 +536,8 @@ int main(int argc, char **argv)
    bcm_host_init();
 
    log.logDebug("Initialised bcm host");
+
+   mmal_port_parameter_set_rational(camera->control, MMAL_PARAMETER_SATURATION, value);
 
    default_status(&state);
 
