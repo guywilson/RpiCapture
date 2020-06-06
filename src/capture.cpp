@@ -22,6 +22,7 @@ extern "C" {
 
 #include "RaspiCommonSettings.h"
 #include "RaspiCamControl.h"
+#include "RaspiPreview.h"
 #include "RaspiHelpers.h"
 }
 
@@ -59,11 +60,13 @@ typedef struct {
    int timestamp;                      /// Use timestamp instead of frame#
    int restart_interval;               /// JPEG restart interval. 0 for none.
 
+   RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
    RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
 
    MMAL_COMPONENT_T *camera_component;    /// Pointer to the camera component
    MMAL_COMPONENT_T *encoder_component;   /// Pointer to the encoder component
    MMAL_COMPONENT_T *null_sink_component; /// Pointer to the null sink component
+   MMAL_CONNECTION_T *preview_connection; /// Pointer to the connection from camera to preview
    MMAL_CONNECTION_T *encoder_connection; /// Pointer to the connection from camera to encoder
 
    MMAL_POOL_T *encoder_pool; /// Pointer to the pool of buffers used by encoder output port
@@ -106,6 +109,7 @@ static void default_status(RASPISTILL_STATE *state)
    state->thumbnailConfig.quality = 35;
    state->camera_component = NULL;
    state->encoder_component = NULL;
+   state->preview_connection = NULL;
    state->encoder_connection = NULL;
    state->encoder_pool = NULL;
    state->encoding = MMAL_ENCODING_JPEG;
@@ -114,6 +118,9 @@ static void default_status(RASPISTILL_STATE *state)
    state->datetime = 0;
    state->timestamp = 0;
    state->restart_interval = 0;
+
+   // Setup preview window defaults
+   raspipreview_set_defaults(&state->preview_parameters);
 
    // Set up the camera_parameters to default
    raspicamcontrol_set_defaults(&state->camera_parameters);
