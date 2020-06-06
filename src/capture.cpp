@@ -527,10 +527,10 @@ int main(int argc, char **argv)
    default_status(&state);
 
    if (argc > 1) {
-      state.linkname = strdup(&argv[1][0]);
+      state.common_settings.filename = strdup(&argv[1][0]);
    }
    else {
-      state.linkname = "out.jpg";
+      state.common_settings.filename = "out.jpg";
    }
 
    log.logDebug("Got file name %s", state.linkname);
