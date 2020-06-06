@@ -599,7 +599,7 @@ int main(int argc, char **argv)
    // Null until we open our filename
    callback_data.file_handle = NULL;
    callback_data.pstate = &state;
-   vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RpiCapture-sem", 0);
+   vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RaspiStill-sem", 0);
 
    vcos_assert(vcos_status == VCOS_SUCCESS);
 
