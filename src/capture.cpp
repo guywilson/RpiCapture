@@ -510,11 +510,13 @@ int main(int argc, char **argv)
 	int				      defaultLoggingLevel = LOG_LEVEL_DEBUG | LOG_LEVEL_INFO | LOG_LEVEL_ERROR | LOG_LEVEL_FATAL;
    bool                 keep_looping = true;
    FILE *               output_file = NULL;
-
-   MMAL_STATUS_T status = MMAL_SUCCESS;
-   MMAL_PORT_T *camera_still_port = NULL;
-   MMAL_PORT_T *encoder_input_port = NULL;
-   MMAL_PORT_T *encoder_output_port = NULL;
+   MMAL_STATUS_T        status = MMAL_SUCCESS;
+   MMAL_PORT_T *        camera_preview_port = NULL;
+   MMAL_PORT_T *        camera_video_port = NULL;
+   MMAL_PORT_T *        camera_still_port = NULL;
+   MMAL_PORT_T *        preview_input_port = NULL;
+   MMAL_PORT_T *        encoder_input_port = NULL;
+   MMAL_PORT_T *        encoder_output_port = NULL;
 
    Logger & log = Logger::getInstance();
 
@@ -562,9 +564,18 @@ int main(int argc, char **argv)
 
    log.logDebug("Created encoder component");
 
+   camera_preview_port = state.camera_component->output[MMAL_CAMERA_PREVIEW_PORT];
+   camera_video_port   = state.camera_component->output[MMAL_CAMERA_VIDEO_PORT];
    camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
    encoder_input_port  = state.encoder_component->input[0];
    encoder_output_port = state.encoder_component->output[0];
+
+   // Note we are lucky that the preview and null sink components use the same input port
+   // so we can simple do this without conditionals
+   preview_input_port  = state.preview_parameters.preview_component->input[0];
+
+   // Connect camera to preview (which might be a null_sink if no preview required)
+   status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
 
    // Now connect the camera to the encoder
    status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
