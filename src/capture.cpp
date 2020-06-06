@@ -593,6 +593,8 @@ int main(int argc, char **argv)
       throw rpi_error("Failed to connect camera to encoder", __FILE__, __LINE__);
    }
 
+   log.logDebug("Connected camera to encoder");
+
    // Set up our userdata - this is passed though to the callback where we need the information.
    // Null until we open our filename
    callback_data.file_handle = NULL;
@@ -600,6 +602,8 @@ int main(int argc, char **argv)
    vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RpiCapture-sem", 0);
 
    vcos_assert(vcos_status == VCOS_SUCCESS);
+
+   log.logDebug("Created semaphore");
 
    // Open the file
    if (state.common_settings.filename) {
@@ -629,12 +633,16 @@ int main(int argc, char **argv)
          throw rpi_error(rpi_error::buildMsg("Faied to open file %s", state.common_settings.filename), __FILE__, __LINE__);
       }
 
+      log.logDebug("Opened output file %s", state.common_settings.filename);
+
       callback_data.file_handle = output_file;
    }
    
    if (output_file) {
       mmal_port_parameter_set_boolean(
          state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
+
+      log.logDebug("Disabled exif");
 
       // There is a possibility that shutter needs to be set each loop.
       status = mmal_port_parameter_set_uint32(
@@ -646,11 +654,15 @@ int main(int argc, char **argv)
          log.logError("Failed to set shutter speed");
       }
 
+      log.logDebug("Set shutter speed");
+
       // Enable the encoder output port
       encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
 
       // Enable the encoder output port and tell it its callback function
       status = mmal_port_enable(encoder_output_port, encoder_buffer_callback);
+
+      log.logDebug("Enabled encoder output port");
 
       // Send all the buffers to the encoder output port
       num = mmal_queue_length(state.encoder_pool->queue);
@@ -669,6 +681,8 @@ int main(int argc, char **argv)
          }
       }
 
+      log.logDebug("Sent buffers to encoder output");
+
       status = mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1);
 
       if (status != MMAL_SUCCESS) {
@@ -681,11 +695,15 @@ int main(int argc, char **argv)
          vcos_semaphore_wait(&callback_data.complete_semaphore);
       }
 
+      log.logDebug("Initaiated capture");
+
       // Ensure we don't die if get callback with no open file
       callback_data.file_handle = NULL;
 
       // Disable encoder output port
       status = mmal_port_disable(encoder_output_port);
+
+      log.logDebug("Disabled port");
 
       if (status != MMAL_SUCCESS) {
          throw rpi_error("Failed to disable port", __FILE__, __LINE__);
@@ -693,4 +711,6 @@ int main(int argc, char **argv)
    }
 
    vcos_semaphore_delete(&callback_data.complete_semaphore);
+
+   log.logDebug("Finished!");
 }
