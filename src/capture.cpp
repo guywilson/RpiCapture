@@ -30,6 +30,8 @@ extern "C" {
 #include "currenttime.h"
 #include "logger.h"
 
+#define MMAL_CAMERA_PREVIEW_PORT 0
+#define MMAL_CAMERA_VIDEO_PORT 1
 #define MMAL_CAMERA_CAPTURE_PORT 2
 
 // Stills format information
